@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import teamColors from '../kbo_team_colors.json';
+import teamLogos from '../logos/team-logos.json';
 import { loadWeek, redrawToday } from './cloudApi';
 
-const logoUrls = import.meta.glob('../logos/*.png', { eager: true, query: '?url', import: 'default' });
-const logoFor = (name) => logoUrls[`../logos/${name}.png`];
+const logoFor = (name) => teamLogos[name];
 const teams = Object.keys(teamColors).filter((name) => name !== 'KBO');
 const modes = [...Array(7).keys()].map((count) => ({ value: String(count), label: `${count}명` }));
 modes.push({ value: 'all', label: '전체' });
