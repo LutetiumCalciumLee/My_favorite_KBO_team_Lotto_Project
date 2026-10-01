@@ -1,0 +1,242 @@
+import permanentRecords from '../kbo_permanant_numbers.json';
+import { requireSupabase } from './supabase';
+
+const VALID_NUMBERS = [...Array(45).keys()].map((index) => index + 1);
+const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
+const UNREGISTERED_NAME = '1군 미등록';
+
+function kstNow() {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return {
+    date: `${values.year}-${values.month}-${values.day}`,
+    hour: Number(values.hour),
+  };
+}
+
+function parseDate(value) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function dateString(value) {
+  return value.toISOString().slice(0, 10);
+}
+
+function addDays(value, count) {
+  const result = new Date(value);
+  result.setUTCDate(result.getUTCDate() + count);
+  return result;
+}
+
+function weekDates(today) {
+  const current = parseDate(today);
+  const sunday = addDays(current, -current.getUTCDay());
+  return [0, 2, 3, 4, 5, 6].map((offset) => dateString(addDays(sunday, offset)));
+}
+
+function saturdayCutoffReached(value, now) {
+  return value === now.date && parseDate(value).getUTCDay() === 6 && now.hour >= 20;
+}
+
+function dayPayload(value, now, numbers = null) {
+  const date = parseDate(value);
+  const saturdayCutoff = saturdayCutoffReached(value, now);
+  const state = value > now.date ? 'future' : value < now.date || saturdayCutoff ? 'locked' : 'today';
+  return {
+    date: value,
+    label: `${String(date.getUTCMonth() + 1).padStart(2, '0')}.${String(date.getUTCDate()).padStart(2, '0')} (${DAY_NAMES[date.getUTCDay()]})`,
+    state,
+    saturdayCutoff,
+    numbers,
+  };
+}
+
+function playerMap(value) {
+  return new Map(Object.entries(value || {}).map(([number, name]) => [Number(number), name]));
+}
+
+function permanentMap(team) {
+  return new Map((permanentRecords[team] || []).map(({ number, name }) => [number, name]));
+}
+
+function rosterName(number, firstPlayers, permanent, futuresPlayers) {
+  return firstPlayers.get(number)
+    || permanent.get(number)
+    || futuresPlayers.get(number)
+    || UNREGISTERED_NAME;
+}
+
+function addRosterNames(numbers, snapshot, team, includePermanent) {
+  if (!Array.isArray(numbers)) return numbers;
+  const firstPlayers = playerMap(snapshot.first_players);
+  const futuresPlayers = playerMap(snapshot.futures_players);
+  const permanent = includePermanent ? permanentMap(team) : new Map();
+
+  return numbers.map((item) => {
+    const savedName = typeof item.name === 'string' ? item.name.trim() : '';
+    return {
+      ...item,
+      name: savedName && savedName !== UNREGISTERED_NAME
+        ? savedName
+        : rosterName(Number(item.number), firstPlayers, permanent, futuresPlayers),
+    };
+  });
+}
+
+function randomIndex(length) {
+  const values = new Uint32Array(1);
+  crypto.getRandomValues(values);
+  return values[0] % length;
+}
+
+function sample(values, count) {
+  const pool = [...values];
+  const selected = [];
+  while (selected.length < count) {
+    selected.push(pool.splice(randomIndex(pool.length), 1)[0]);
+  }
+  return selected;
+}
+
+function createNumbers(snapshot, team, mode, includePermanent) {
+  const firstPlayers = playerMap(snapshot.first_players);
+  const futuresPlayers = playerMap(snapshot.futures_players);
+  const permanent = includePermanent ? permanentMap(team) : new Map();
+  const first = new Set([...firstPlayers.keys()].filter((number) => Number.isInteger(number) && number >= 1 && number <= 45));
+  for (const number of permanent.keys()) if (number >= 1 && number <= 45) first.add(number);
+
+  let selected;
+  if (mode === 'all') {
+    const candidates = new Set([...first, ...[...futuresPlayers.keys()].filter((number) => number >= 1 && number <= 45)]);
+    if (candidates.size < 6) throw new Error('1군·퓨처스 등록 번호가 6개보다 적습니다.');
+    selected = sample(candidates, 6);
+  } else {
+    const firstCount = Number(mode);
+    const other = VALID_NUMBERS.filter((number) => !first.has(number));
+    if (first.size < firstCount || other.length < 6 - firstCount) {
+      throw new Error('선택한 1군 선수 수에 필요한 등번호가 부족합니다.');
+    }
+    selected = [...sample(first, firstCount), ...sample(other, 6 - firstCount)];
+  }
+
+  return selected.sort((a, b) => a - b).map((number) => ({
+    number,
+    source: first.has(number) ? 'first' : 'other',
+    name: rosterName(number, firstPlayers, permanent, futuresPlayers),
+  }));
+}
+
+let userRequest;
+
+async function getOrCreateUser() {
+  const client = requireSupabase();
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw sessionError;
+  if (sessionData.session?.user) return sessionData.session.user;
+  const { data, error } = await client.auth.signInAnonymously();
+  if (error) throw error;
+  return data.user;
+}
+
+async function currentUser() {
+  // React StrictMode가 동시에 요청해도 하나의 익명 계정만 만든다.
+  if (!userRequest) {
+    userRequest = getOrCreateUser().catch((error) => {
+      userRequest = undefined;
+      throw error;
+    });
+  }
+  return userRequest;
+}
+
+async function latestSnapshot(team, today) {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('roster_snapshots')
+    .select('*')
+    .eq('team', team)
+    .lte('roster_date', today)
+    .order('roster_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('아직 이 팀의 KBO 명단이 동기화되지 않았습니다.');
+  return data;
+}
+
+async function putUserDraw(user, snapshot, team, mode, includePermanent, drawDate, numbers) {
+  const client = requireSupabase();
+  const { error } = await client.from('user_draws').upsert({
+    user_id: user.id,
+    draw_date: drawDate,
+    team,
+    mode,
+    include_permanent: includePermanent,
+    numbers,
+    roster_date: snapshot.roster_date,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id,draw_date,team,mode,include_permanent' });
+  if (error) throw error;
+}
+
+export async function loadWeek(team, mode, includePermanent) {
+  const client = requireSupabase();
+  const user = await currentUser();
+  const now = kstNow();
+  const today = now.date;
+  const dates = weekDates(today);
+  const snapshot = await latestSnapshot(team, today);
+
+  const commonFilters = (query) => query
+    .eq('team', team)
+    .eq('mode', mode)
+    .eq('include_permanent', includePermanent)
+    .in('draw_date', dates);
+  const [userResult, dailyResult] = await Promise.all([
+    commonFilters(client.from('user_draws').select('draw_date,numbers')).eq('user_id', user.id),
+    commonFilters(client.from('daily_results').select('draw_date,numbers')),
+  ]);
+  for (const result of [userResult, dailyResult]) if (result.error) throw result.error;
+
+  const userByDate = new Map(userResult.data.map((row) => [row.draw_date, row.numbers]));
+  const dailyByDate = new Map(dailyResult.data.map((row) => [row.draw_date, row.numbers]));
+  if (dates.includes(today) && !userByDate.has(today) && !saturdayCutoffReached(today, now)) {
+    const numbers = createNumbers(snapshot, team, mode, includePermanent);
+    await putUserDraw(user, snapshot, team, mode, includePermanent, today, numbers);
+    userByDate.set(today, numbers);
+  }
+
+  return {
+    team,
+    mode,
+    includePermanent,
+    referenceDate: snapshot.roster_date,
+    weekStart: dates[0],
+    weekEnd: dates[dates.length - 1],
+    days: dates.map((date) => {
+      const storedNumbers = date > today ? null : userByDate.get(date) || dailyByDate.get(date) || null;
+      const numbers = addRosterNames(storedNumbers, snapshot, team, includePermanent);
+      return dayPayload(date, now, numbers);
+    }),
+  };
+}
+
+export async function redrawToday(team, mode, includePermanent) {
+  const now = kstNow();
+  if (parseDate(now.date).getUTCDay() === 1) {
+    throw new Error('월요일에는 번호를 생성하지 않습니다.');
+  }
+  if (saturdayCutoffReached(now.date, now)) {
+    throw new Error('토요일 번호는 한국시간 20시에 고정되어 다시 뽑을 수 없습니다.');
+  }
+  const user = await currentUser();
+  const today = now.date;
+  const snapshot = await latestSnapshot(team, today);
+  const numbers = createNumbers(snapshot, team, mode, includePermanent);
+  await putUserDraw(user, snapshot, team, mode, includePermanent, today, numbers);
+  return dayPayload(today, now, numbers);
+}
