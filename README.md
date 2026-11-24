@@ -244,7 +244,7 @@ KBO and team logos belong to their respective rights holders. This is an unoffic
 
 </details>
 
-<details>
+<details open>
 <summary>KOR (한국어 버전)</summary>
 
 # KBO 리그 최애팀 주간 등번호 로또
