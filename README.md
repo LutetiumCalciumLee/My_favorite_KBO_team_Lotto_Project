@@ -7,7 +7,6 @@ A web application that generates weekly lotto numbers using player jersey number
 
 The project combines a React interface, Python web scraping, Supabase storage, and automated deployment through GitHub Pages.
 
-**[Open Website](https://lutetiumcalciumlee.github.io/My_favorite_KBO_team_Lotto_Project/)** 
 
 ## 1. Project Background
 
@@ -233,7 +232,10 @@ Local environment files, SQLite databases, `node_modules`, and `dist` are exclud
 
 GitHub Actions schedules may be delayed. The database's Saturday redraw restriction applies independently of the workflow's actual execution time.
 
-## 9. Data Sources and Notes
+
+## [9. Open Website](https://lutetiumcalciumlee.github.io/My_favorite_KBO_team_Lotto_Project/)
+
+### 9-1. Data Sources and Notes
 
 - [KBO First-Team Player Registration](https://www.koreabaseball.com/Player/RegisterAll.aspx)
 - [KBO Futures League Player Registration](https://www.koreabaseball.com/Futures/Player/Register.aspx)
@@ -253,7 +255,6 @@ KBO and team logos belong to their respective rights holders. This is an unoffic
 
 React 화면, Python 웹 스크래핑, Supabase 데이터 저장, GitHub Pages 자동 배포를 연결한 프로젝트입니다.
 
-**[웹사이트 열기](https://lutetiumcalciumlee.github.io/My_favorite_KBO_team_Lotto_Project/)** 
 
 ## 1. 프로젝트를 만든 배경
 
@@ -479,7 +480,10 @@ secret 또는 service_role 키는 프론트엔드 코드, `VITE_` 환경 변수,
 
 GitHub Actions 예약 실행은 지연될 수 있습니다. 데이터베이스의 토요일 재추첨 제한은 실제 작업 실행 시각과 관계없이 적용됩니다.
 
-## 9. 데이터 출처와 안내
+
+## [9. 웹사이트 열기](https://lutetiumcalciumlee.github.io/My_favorite_KBO_team_Lotto_Project/)
+
+### 9-1. 데이터 출처와 안내
 
 - [KBO 1군 선수 등록 현황](https://www.koreabaseball.com/Player/RegisterAll.aspx)
 - [KBO 퓨처스 선수 등록 현황](https://www.koreabaseball.com/Futures/Player/Register.aspx)
